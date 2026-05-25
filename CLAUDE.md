@@ -1,10 +1,10 @@
-# CLAUDE.md — ElevenLabs TUI
+# CLAUDE.md — Dashboard NMEA 0183 TUI
 
 ## Contexte du projet
 
-Application TUI en Rust permettant de générer des fichiers audio à partir d'une chaîne de caractères via l'API ElevenLabs. Une traduction préalable (via API tierce) est effectuée si la langue source diffère de la langue cible. Voir `PROJECT.md` pour la vision complète.
+Application TUI en Rust affichant en temps réel les instruments de bord (vitesse, cap, position) depuis un flux de trames NMEA 0183. En V1, la source est un fichier de log de navigation simulé ; en V2, ce sera un port série réel. Voir `PROJECT.md` pour la vision complète.
 
-**Objectif premier :** apprentissage de `ratatui` et de l'écosystème async Rust (`tokio`, `reqwest`).
+**Objectif premier :** apprentissage de `ratatui` et de l'écosystème async Rust (`tokio`), avec l'apprentissage du parsing de protocole binaire/texte via la crate `nmea` (elle-même fondée sur `nom`).
 
 ## Commandes essentielles
 
@@ -22,25 +22,30 @@ Pas de tests automatisés en V1.
 ```
 src/
 ├── main.rs           # Point d'entrée, initialisation tokio + lancement TUI
-├── app.rs            # État global de l'application, machine à états (Idle / Processing / Done / Error)
+├── app.rs            # État global de l'application, machine à états (Idle / Streaming / Paused / Error)
 ├── ui/
 │   ├── mod.rs        # Rendu ratatui — fonction principale draw()
-│   └── widgets.rs    # Widgets réutilisables (champs de saisie, barre de statut, etc.)
-├── worker.rs         # Tâche tokio en arrière-plan : appels API, messages de progression via MPSC
-├── api/
-│   ├── translation.rs  # Client pour l'API de traduction
-│   └── elevenlabs.rs   # Client pour l'API ElevenLabs
-└── config.rs         # Lecture/écriture de config.toml (clés API, voix par défaut)
+│   └── widgets.rs    # Widgets réutilisables (instruments, log défilant, barre de statut)
+├── worker.rs         # Tâche tokio en arrière-plan : lit le flux brut ligne par ligne,
+│                     #   délègue au parser, envoie les structures de données à l'UI via MPSC
+├── parser/
+│   ├── mod.rs        # Façade publique du module de parsing
+│   └── nmea.rs       # Logique de parsing des sentences NMEA (RMC, GGA) via la crate nmea
+└── config.rs         # Lecture de config.toml (chemin fichier, délai simulation)
 ```
 
 ## Architecture MPSC
 
-Le thread UI ne doit **jamais** bloquer sur des appels réseau. Le pattern à respecter :
+Le thread UI ne doit **jamais** bloquer sur des I/O. Le pattern à respecter :
 
-1. L'UI envoie un message au worker via `tx` (ex: `Command::Generate { text, from, to, voice }`)
-2. Le worker exécute les appels `reqwest` en tâche de fond
-3. Le worker renvoie des messages de progression via `rx` (ex: `Event::TranslationDone`, `Event::AudioDone`, `Event::Error`)
-4. L'UI lit `rx` à chaque tick et met à jour son état
+1. L'UI envoie une commande au worker via `tx` (ex : `Command::StartStream`, `Command::Pause`, `Command::Restart`)
+2. Le worker lit le fichier ligne par ligne avec un délai configurable, passe chaque ligne brute au `parser/nmea.rs`
+3. Le worker renvoie des événements via `rx` :
+   - `Event::NmeaData(GpsData)` — trame parsée avec succès, contient la struct de données propres
+   - `Event::RawLine(String)` — ligne brute reçue, destinée au log défilant de l'UI
+   - `Event::ParseError(String)` — trame mal formée ou sentence non supportée
+   - `Event::EndOfFile` — fin du fichier de simulation
+4. L'UI lit `rx` à chaque tick et met à jour son état affiché
 
 ## Conventions de code
 
@@ -51,18 +56,22 @@ Le thread UI ne doit **jamais** bloquer sur des appels réseau. Le pattern à re
 
 ## Configuration locale
 
-Le fichier `config.toml` est lu au démarrage depuis le répertoire courant. Il n'est **pas versionné** (`.gitignore`). Structure attendue :
+Le fichier `config.toml` est lu au démarrage depuis le répertoire courant. Il n'est **pas versionné** (`.gitignore`). Structure attendue en V1 :
 
 ```toml
-elevenlabs_api_key = ""
-translation_api_key = ""
-default_voice_id = ""
+log_file_path = "simulation.log"
+simulation_delay_ms = 500
 ```
 
-Ne jamais écrire de clés API en dur dans le code.
+## Profil utilisateur & Mode de collaboration
 
-## Profil utilisateur
+- **Niveau Rust :** Développeur issu du C/C++ (maîtrise fine de la mémoire, des pointeurs et de l'architecture système), en transition active vers Rust. Les concepts d'ownership et de lifetimes sont à ancrer dans des analogies avec la gestion manuelle de mémoire C/C++.
+- **Environnement :** Terminal-only — Neovim, tmux, WSL2. Aucune interface graphique.
 
-- Niveau Rust : **intermédiaire** (ownership, borrowing, traits acquis — apprentissage de ratatui/tokio en cours)
-- Environnement : **WSL2** sous Windows
-- Préférer des explications orientées "pourquoi" plutôt que "quoi" pour les concepts ratatui/tokio
+### Directive de collaboration — Mentor Socratique
+
+**Interdiction stricte** de générer du code source ou de modifier les fichiers `.rs`. Claude agit exclusivement comme Lead Dev et Mentor Socratique :
+
+- Face à une erreur de compilation ou un blocage conceptuel : expliquer **pourquoi** le compilateur rejette le code (quel invariant d'ownership, de lifetime ou de trait est violé), donner des indices orientants, mais **laisser l'utilisateur écrire l'implémentation dans Neovim**.
+- Privilégier les analogies C/C++ pour ancrer les concepts Rust : la borrow checker comme un système de pointeurs RAII strict, les lifetimes comme des scopes de portée explicites, `Arc<Mutex<T>>` comme un `shared_ptr` thread-safe avec lock.
+- Les interventions de Claude se limitent à : architecture, spécification (PROJECT.md), configuration (Cargo.toml, config.toml), et guidance conceptuelle.

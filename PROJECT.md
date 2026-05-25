@@ -1,92 +1,119 @@
-# PROJET : ElevenLabs TUI (Nom à définir)
+# PROJET : Dashboard NMEA 0183 (TUI Rust)
 
 ## 1. Objectif du projet
 
 Ce projet a deux finalités :
 
-- **Apprentissage :** explorer la création d'interfaces terminal (TUI) en Rust via la bibliothèque `ratatui`.
-- **Outil pratique :** générer des fichiers audio à partir d'une chaîne de caractères, en s'appuyant sur l'API ElevenLabs pour la synthèse vocale.
+- **Apprentissage :** approfondir `ratatui`, `tokio`, et introduire la communication avec des équipements nautiques (port série, protocole NMEA 0183).
+- **Outil pratique :** afficher en temps réel les instruments de bord (vitesse, cap, position) depuis un flux NMEA 0183, dans un dashboard entièrement terminal.
+
+Objectif stratégique à long terme : se spécialiser dans le développement de systèmes embarqués nautiques.
 
 ## 2. Description Fonctionnelle
 
-L'utilisateur saisit une chaîne de caractères (ou désigne un fichier qui en contient une). Il précise la **langue source** (langue dans laquelle le texte est écrit) et la **langue cible** (langue que doit utiliser ElevenLabs pour le prononcer).
-
-Le pipeline se déroule comme suit :
+L'application lit un flux de trames NMEA 0183 ligne par ligne, parse les sentences reconnues, et met à jour un dashboard TUI en temps réel.
 
 ```
-Texte source
+Source NMEA (fichier log ou port série)
     │
-    ├─ [si langue source ≠ langue cible] ──> API de traduction ──> Texte traduit
-    │
-    └─ [dans tous les cas] ──> API ElevenLabs (voix choisie, langue cible) ──> Fichier audio
+    └─> Worker async (lecture + parsing)
+            │
+            └─> Channel MPSC (structures de données propres)
+                    │
+                    └─> Thread UI (ratatui) ──> Dashboard terminal
 ```
 
-L'utilisateur choisit ensuite le nom et l'emplacement du fichier audio généré via un champ texte dans la TUI (chemin absolu ou relatif).
+**V1 :** source = fichier `.txt` / `.log` simulant une navigation (lecture ligne par ligne avec délai configurable).
+**V2 :** source = port série réel (via `serialport`).
 
 ## 3. Fonctionnalités V1
 
-- **Entrée du texte** (via la TUI) :
-    - Saisie/collage direct d'une chaîne de caractères dans l'interface.
-    - Désignation d'un fichier local contenant la chaîne.
-- **Paramètres de traitement** (via la TUI) :
-    - Sélection de la langue source.
-    - Sélection de la langue cible.
-    - Sélection de la voix ElevenLabs à utiliser.
-- **Pipeline conditionnel :**
-    - Si langue source = langue cible → envoi direct à ElevenLabs.
-    - Si langue source ≠ langue cible → traduction préalable, puis envoi à ElevenLabs.
-- **Sauvegarde du fichier audio :**
-    - Widget de saisie de texte dans la TUI pour entrer le chemin et le nom du fichier de sortie (ex: `/mnt/c/Users/.../output.mp3`).
-    - Approche "Pure TUI", style Vim — pas de dépendance à un dialogue natif OS, compatible WSL sans configuration supplémentaire.
+- **Source de données :**
+    - Lecture d'un fichier de log NMEA 0183 (chemin passé en argument CLI ou saisi dans la TUI).
+    - Délai entre chaque ligne configurable (simulation du temps réel).
+
+- **Parsing NMEA :**
+    - `$GPRMC` — Position (lat/lon), vitesse fond (SOG), cap fond (COG), date/heure UTC.
+    - `$GPGGA` — Position, altitude, qualité du fix GPS, nombre de satellites.
+
+- **Dashboard TUI :**
+    - **Vitesse sur le fond (SOG)** — valeur principale en grand affichage (nœuds).
+    - **Cap fond (COG)** — en degrés.
+    - **Latitude / Longitude** — format degrés-minutes décimales.
+    - **Log défilant** — trames brutes reçues, avec horodatage local.
+    - **Barre de statut** — source active, état du parsing (OK / erreur).
+
 - **Configuration :**
-    - Clés API (ElevenLabs, service de traduction) stockées dans un fichier de config local.
-    - Service de traduction : à déterminer (DeepL, OpenAI, etc.).
+    - Fichier `config.toml` local (non versionné) pour les paramètres par défaut (chemin fichier, délai de simulation).
+
+- **Navigation clavier :**
+    - `q` / `Ctrl-C` : quitter.
+    - `p` : pause / reprise de la lecture.
+    - `r` : relancer la lecture depuis le début du fichier.
 
 ## 4. Hors scope V1
 
-- Lecture de fichiers multi-blocs ou longs documents.
-- Gestion de plus de 5-6 langues (couverture pratique restreinte).
-
-## 5. Pistes pour les versions futures
-
-- **V2 — Mode CLI pur :** ajouter `clap` pour permettre d'utiliser l'outil directement en ligne de commande, sans passer par la TUI (ex: `app "Bonjour" --from fr --to en --voice ma_voix`). Utile pour scripter ou automatiser des générations en masse.
+- Connexion port série réelle (prévu V2 — voir section 6).
+- Parsing de sentences autres que RMC et GGA.
+- Affichage cartographique ou trace GPS.
+- Export / enregistrement des données reçues.
 
 ## 5. Architecture et Stack Technique
 
 - **Langage :** Rust
 - **Interface Terminal (TUI) :** `ratatui` (rendu) + `crossterm` (backend terminal)
-- **Asynchronisme & Réseau :** `tokio` (runtime) + `reqwest` (requêtes HTTP)
-- **Sérialisation :** `serde` + `serde_json` / `toml` (config locale et parsing des réponses API)
+- **Asynchronisme :** `tokio` (runtime async, features full)
+- **Parsing NMEA :** `nmea` (sentences RMC, GGA et autres)
+- **Sérialisation / config :** `serde` + `toml`
+- **Gestion d'erreurs :** `anyhow`
 
 ### Modèle de concurrence : MPSC
 
-Pour éviter tout gel de l'interface pendant les appels réseau, l'application adopte une architecture à deux acteurs communicant via des canaux MPSC (`tokio::sync::mpsc`) :
+L'UI ne doit jamais bloquer sur des I/O. Architecture à deux acteurs :
 
-- **Thread UI (principal) :** gère le rendu `ratatui` et la capture des événements clavier. Quand l'utilisateur lance le traitement, il envoie un message dans le canal et passe son état à `Processing`.
-- **Worker task (arrière-plan) :** tâche `tokio` qui exécute les appels `reqwest` (traduction conditionnelle → ElevenLabs) et renvoie des messages de progression au thread UI.
+- **Thread UI (principal) :** boucle d'événements `ratatui` + capture clavier via `crossterm`. Lit le channel à chaque tick et met à jour l'état affiché.
+- **Worker task (arrière-plan) :** tâche `tokio` qui lit le fichier ligne par ligne, parse chaque trame via `nmea`, et envoie une structure `NmeaFrame` propre dans le channel MPSC vers l'UI.
 
-Exemples de messages retournés par le worker : `TranslationDone`, `AudioDone`, `Error`.
+Messages du worker vers l'UI (exemples) :
+- `Event::Frame(NmeaFrame::Rmc { sog, cog, lat, lon, datetime })`
+- `Event::Frame(NmeaFrame::Gga { lat, lon, altitude, satellites })`
+- `Event::ParseError(String)` — trame mal formée, affichée dans le log.
+- `Event::EndOfFile` — fin du fichier de simulation.
+
+Message de l'UI vers le worker :
+- `Command::Pause`
+- `Command::Resume`
+- `Command::Restart`
 
 ## 6. Structure de la Configuration (`config.toml`)
 
 ```toml
-elevenlabs_api_key = ""
-translation_api_key = ""
-default_voice_id = ""
+log_file_path = "data/sample_navigation.log"
+simulation_delay_ms = 500
 ```
 
-## 7. Roadmap V1
+## 7. Pistes pour les versions futures
+
+- **V2 — Port série réel :** intégrer la crate `serialport` pour lire depuis un récepteur GPS / traceur de carte branché en USB/série. Rendre la source interchangeable (fichier vs. port série) via un trait commun `NmeaSource`.
+- **V3 — Sentences supplémentaires :** `$GPVTG` (cap/vitesse), `$GPGSV` (satellites en vue), `$IIDPT` (sonde).
+- **V4 — Trace GPS :** affichage d'une trace de route dans un widget canvas `ratatui`.
+
+## 8. Roadmap V1
 
 - [ ] **Phase 1 : Squelette TUI**
-    - Initialisation du projet Cargo avec les dépendances.
-    - Mise en place de la boucle d'événements `ratatui`.
-    - Écran principal avec les champs de saisie (texte, langues, voix).
-    - Lecture/écriture du fichier de configuration.
-- [ ] **Phase 2 : Intégration API**
-    - Requêtes asynchrones vers l'API de traduction (avec branchement conditionnel).
-    - Requêtes asynchrones vers l'API ElevenLabs.
-    - Sauvegarde du flux audio reçu sur le disque.
-- [ ] **Phase 3 : Finalisation TUI**
-    - Gestion des états (chargement, succès, erreur) dans l'interface.
-    - Saisie du chemin de sauvegarde via un champ texte TUI (chemin absolu ou relatif).
-    - Affichage du résultat et confirmation à l'utilisateur.
+    - Initialisation Cargo, dépendances.
+    - Boucle d'événements `ratatui` avec `crossterm`.
+    - Layout du dashboard (blocs : vitesse, cap, position, log).
+    - Lecture / écriture `config.toml`.
+
+- [ ] **Phase 2 : Worker NMEA**
+    - Lecture du fichier log ligne par ligne avec délai.
+    - Parsing des sentences RMC et GGA via la crate `nmea`.
+    - Envoi des structures `NmeaFrame` via channel MPSC.
+    - Gestion des commandes Pause / Resume / Restart depuis l'UI.
+
+- [ ] **Phase 3 : Finalisation Dashboard**
+    - Mise à jour réactive des widgets à chaque `Event::Frame`.
+    - Log défilant des trames brutes avec horodatage.
+    - Barre de statut (source, état, dernière erreur de parsing).
+    - Gestion propre de `Event::EndOfFile` (message + arrêt propre).
