@@ -7,7 +7,13 @@ Ce projet a deux finalités :
 - **Apprentissage :** approfondir `ratatui`, `tokio`, et introduire la communication avec des équipements nautiques (port série, protocole NMEA 0183).
 - **Outil pratique :** afficher en temps réel les instruments de bord (vitesse, cap, position) depuis un flux NMEA 0183, dans un dashboard entièrement terminal.
 
-Objectif stratégique à long terme : se spécialiser dans le développement de systèmes embarqués nautiques.
+### Positionnement stratégique
+
+Ce projet s'inscrit dans une trajectoire B2B précise : **sécuriser et moderniser le code legacy (C/C++) des systèmes embarqués maritimes** pour répondre aux exigences du *Cyber Resilience Act* européen, sans perte de performance.
+
+La V1 pose les fondations Rust dans le domaine cible (parsing NMEA, async, TUI). La V2 bascule sur un parser NMEA écrit en C, intégré via FFI Rust/C — démontrant
+directement la compétence différenciante : interfacer et sécuriser du code embarqué legacy dans un wrapper Rust safe. Ce projet constitue la première brique du
+portfolio **Digital Trust Stack**, à destination des acteurs de la sailing tech (Madintec, Pixel sur Mer, écuries IMOCA/Ultim).
 
 ## 2. Description Fonctionnelle
 
@@ -92,11 +98,12 @@ log_file_path = "data/sample_navigation.log"
 simulation_delay_ms = 500
 ```
 
-## 7. Pistes pour les versions futures
+Section 7 — remplace la piste V2 par :
 
-- **V2 — Port série réel :** intégrer la crate `serialport` pour lire depuis un récepteur GPS / traceur de carte branché en USB/série. Rendre la source interchangeable (fichier vs. port série) via un trait commun `NmeaSource`.
-- **V3 — Sentences supplémentaires :** `$GPVTG` (cap/vitesse), `$GPGSV` (satellites en vue), `$IIDPT` (sonde).
-- **V4 — Trace GPS :** affichage d'une trace de route dans un widget canvas `ratatui`.
+- **V2 — Binding FFI vers un parser C :** remplacer la crate `nmea` par un parser NMEA écrit en C (stub maison ou bibliothèque existante), intégré via FFI Rust/C avec
+gestion explicite de `unsafe`. Objectif : démontrer la capacité à envelopper du code embarqué legacy dans une couche Rust safe, scénario central de la proposition de
+valeur B2B.
+- **V3 — Port série réel :** intégrer `serialport` pour lire depuis un récepteur GPS/traceur USB. Rendre la source interchangeable via un trait commun `NmeaSource` (fichier / FFI C / port série).
 
 ## 8. Roadmap V1
 
