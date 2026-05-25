@@ -21,7 +21,7 @@ Texte source
     └─ [dans tous les cas] ──> API ElevenLabs (voix choisie, langue cible) ──> Fichier audio
 ```
 
-L'utilisateur choisit ensuite le nom et l'emplacement du fichier audio généré via une fenêtre de sauvegarde.
+L'utilisateur choisit ensuite le nom et l'emplacement du fichier audio généré via un champ texte dans la TUI (chemin absolu ou relatif).
 
 ## 3. Fonctionnalités V1
 
@@ -88,5 +88,5 @@ default_voice_id = ""
     - Sauvegarde du flux audio reçu sur le disque.
 - [ ] **Phase 3 : Finalisation TUI**
     - Gestion des états (chargement, succès, erreur) dans l'interface.
-    - Intégration de la fenêtre de sauvegarde native (investigation WSL/PowerShell).
+    - Saisie du chemin de sauvegarde via un champ texte TUI (chemin absolu ou relatif).
     - Affichage du résultat et confirmation à l'utilisateur.
