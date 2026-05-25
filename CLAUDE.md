@@ -49,6 +49,7 @@ Le thread UI ne doit **jamais** bloquer sur des I/O. Le pattern à respecter :
 
 ## Conventions de code
 
+- **Langue dans le code :** tout ce qui apparaît dans un fichier `.rs` est rédigé en anglais — identifiants, messages d'erreur `.context("...")`, chaînes affichées dans la TUI, et les rares commentaires autorisés. Les documents de travail (`CLAUDE.md`, `PROJECT.md`) restent en français.
 - **Gestion d'erreurs :** `anyhow` partout (`Result<T>` = `anyhow::Result<T>`). Utiliser `.context("message explicite")` sur chaque `?` qui traverse une frontière de module.
 - **Pas de `unwrap()` ni de `expect()`** dans le code de production — uniquement en phase de prototypage, et retirer avant de considérer une fonctionnalité terminée.
 - **Pas de commentaires** sauf pour les invariants non évidents ou les contournements spécifiques.
