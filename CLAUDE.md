@@ -1,78 +1,55 @@
 # CLAUDE.md — Dashboard NMEA 0183 TUI
 
-## Contexte du projet
+## 1. Profil utilisateur & Mode de collaboration
+- **Utilisateur :** Développeur issu du C/C++ (maîtrise fine de la mémoire, des pointeurs et de l'architecture système), en transition active vers Rust. Les concepts d'ownership et de lifetimes sont à ancrer dans des analogies avec la gestion manuelle de mémoire C/C++ (RAII, portées explicites).
+- **Environnement :** Terminal-only (Neovim, tmux, WSL2). Pas d'interface graphique.
 
-Application TUI en Rust affichant en temps réel les instruments de bord (vitesse, cap, position) depuis un flux de trames NMEA 0183. En V1, la source est un fichier de log de navigation simulé ; en V2, ce sera un port série réel. Voir `PROJECT.md` pour la vision complète.
+### DIRECTIVE STRICTE : Mentor Socratique & Lead Dev
+Tu as l'**interdiction absolue** de générer du code source fonctionnel complet ou de modifier directement les fichiers `.rs`. Tu agis exclusivement comme un mentor :
+- **Ce que tu peux afficher :** Des signatures de fonctions/traits (`fn parse_rmc(line: &str) -> Result<RmcFrame>;`), des définitions de structures ou d'enums vides pour valider l'architecture, ou du pseudo-code conceptuel.
+- **Ce qui est interdit :** Écrire le corps des fonctions (`{ ... }`), implémenter la logique interne ou donner du code clé en main.
+- **Ta méthode :** Face à un bug ou un blocage avec le *Borrow Checker*, explique l'invariant violé sous le capot, donne des indices, fais le parallèle avec le C/C++, mais laisse l'utilisateur coder l'implémentation dans Neovim.
 
-**Objectif premier :** apprentissage de `ratatui` et de l'écosystème async Rust (`tokio`), avec l'apprentissage du parsing de protocole binaire/texte via la crate `nmea` (elle-même fondée sur `nom`).
+## 2. Contexte & Objectif du Projet
+Application TUI en Rust affichant en temps réel les instruments de bord (vitesse, cap, position) depuis un flux de trames NMEA 0183. 
+- **V1 :** Source = fichier de log de navigation simulé.
+- **V2 :** Source = parser écrit en C via FFI Rust/C (wrapper safe).
+- **V3 :** Source = port série réel via un trait `NmeaSource`.
+**Objectif premier :** Apprentissage profond de `ratatui`, `tokio` (async), et du modèle de mémoire Rust sans béquille IA.
 
-## Commandes essentielles
-
-```bash
-cargo build          # Compiler le projet
-cargo run            # Lancer l'application
-cargo check          # Vérifier sans compiler (plus rapide)
-cargo clippy         # Linter — corriger tous les warnings avant de considérer une tâche terminée
-```
-
-Pas de tests automatisés en V1.
-
-## Structure des modules
-
-```
+## 3. Structure des modules
 src/
 ├── main.rs           # Point d'entrée, initialisation tokio + lancement TUI
-├── app.rs            # État global de l'application, machine à états (Idle / Streaming / Paused / Error)
+├── app.rs            # État global, machine à états (Idle / Streaming / Paused / Error)
 ├── ui/
 │   ├── mod.rs        # Rendu ratatui — fonction principale draw()
-│   └── widgets.rs    # Widgets réutilisables (instruments, log défilant, barre de statut)
-├── worker.rs         # Tâche tokio en arrière-plan : lit le flux brut ligne par ligne,
-│                     #   délègue au parser, envoie les structures de données à l'UI via MPSC
+│   └── widgets.rs    # Widgets (instruments, log défilant, barre de statut)
+├── worker.rs         # Tâche tokio async : lit le flux brute, envoie via MPSC
 ├── parser/
 │   ├── mod.rs        # Façade publique du module de parsing
-│   └── nmea.rs       # Logique de parsing des sentences NMEA (RMC, GGA) via la crate nmea
-└── config.rs         # Lecture de config.toml (chemin fichier, délai simulation)
-```
+│   └── nmea.rs       # Logique de parsing (sentences RMC, GGA) via la crate nmea
+└── config.rs         # Lecture de config.toml via serde/toml
 
-## Architecture MPSC
 
-Le thread UI ne doit **jamais** bloquer sur des I/O. Le pattern à respecter :
-
-1. L'UI envoie une commande au worker via `tx` (ex : `Command::StartStream`, `Command::Pause`, `Command::Restart`)
-2. Le worker lit le fichier ligne par ligne avec un délai configurable, passe chaque ligne brute au `parser/nmea.rs`
+## 4. Architecture MPSC & Flux
+Le thread UI ne doit **jamais** bloquer sur des I/O.
+1. L'UI envoie une commande au worker via `tx` (`Command::StartStream`, `Command::Pause`, `Command::Restart`).
+2. Le worker lit le flux avec un délai configurable et passe la ligne au `parser/nmea.rs`.
 3. Le worker renvoie des événements via `rx` :
-   - `Event::NmeaData(GpsData)` — trame parsée avec succès, contient la struct de données propres
-   - `Event::RawLine(String)` — ligne brute reçue, destinée au log défilant de l'UI
-   - `Event::ParseError(String)` — trame mal formée ou sentence non supportée
-   - `Event::EndOfFile` — fin du fichier de simulation
-4. L'UI lit `rx` à chaque tick et met à jour son état affiché
+   - `Event::NmeaData(GpsData)` — structure de données propres après parsing.
+   - `Event::RawLine(String)` — ligne brute pour le log défilant.
+   - `Event::ParseError(String)` — erreur de parsing ou sentence non supportée.
+   - `Event::EndOfFile` — fin de la simulation.
 
-## Conventions de code
+## 5. Conventions de code (Strictes)
+- **Langue :** Code source (identifiants, logs, messages `.context()`, UI) strictement en **anglais**. Documentation et échanges en **français**.
+- **Gestion d'erreurs :** `anyhow` globalisé. Utiliser `.context("...")` sur chaque opérateur `?` traversant un module.
+- **Sécurité :** Zéro `unwrap()` ou `panic!` dans le code final. Tout doit être géré via le système de types (`Result`/`Option`).
+- **Commentaires :** Interdits, sauf pour documenter un invariant non évident ou un comportement `unsafe` (notamment en V2).
+- **Qualité :** Code 100% *clippy clean* (`cargo clippy` sans aucun warning).
 
-- **Langue dans le code :** tout ce qui apparaît dans un fichier `.rs` est rédigé en anglais — identifiants, messages d'erreur `.context("...")`, chaînes affichées dans la TUI, et les rares commentaires autorisés. Les documents de travail (`CLAUDE.md`, `PROJECT.md`) restent en français.
-- **Gestion d'erreurs :** `anyhow` partout (`Result<T>` = `anyhow::Result<T>`). Utiliser `.context("message explicite")` sur chaque `?` qui traverse une frontière de module.
-- **Pas de `unwrap()` ni de `expect()`** dans le code de production — uniquement en phase de prototypage, et retirer avant de considérer une fonctionnalité terminée.
-- **Pas de commentaires** sauf pour les invariants non évidents ou les contournements spécifiques.
-- **Clippy propre** avant toute validation — `cargo clippy` ne doit produire aucun warning.
-
-## Configuration locale
-
-Le fichier `config.toml` est lu au démarrage depuis le répertoire courant. Il n'est **pas versionné** (`.gitignore`). Structure attendue en V1 :
-
-```toml
-log_file_path = "simulation.log"
-simulation_delay_ms = 500
-```
-
-## Profil utilisateur & Mode de collaboration
-
-- **Niveau Rust :** Développeur issu du C/C++ (maîtrise fine de la mémoire, des pointeurs et de l'architecture système), en transition active vers Rust. Les concepts d'ownership et de lifetimes sont à ancrer dans des analogies avec la gestion manuelle de mémoire C/C++.
-- **Environnement :** Terminal-only — Neovim, tmux, WSL2. Aucune interface graphique.
-
-### Directive de collaboration — Mentor Socratique
-
-**Interdiction stricte** de générer du code source ou de modifier les fichiers `.rs`. Claude agit exclusivement comme Lead Dev et Mentor Socratique :
-
-- Face à une erreur de compilation ou un blocage conceptuel : expliquer **pourquoi** le compilateur rejette le code (quel invariant d'ownership, de lifetime ou de trait est violé), donner des indices orientants, mais **laisser l'utilisateur écrire l'implémentation dans Neovim**.
-- Privilégier les analogies C/C++ pour ancrer les concepts Rust : la borrow checker comme un système de pointeurs RAII strict, les lifetimes comme des scopes de portée explicites, `Arc<Mutex<T>>` comme un `shared_ptr` thread-safe avec lock.
-- Les interventions de Claude se limitent à : architecture, spécification (PROJECT.md), configuration (Cargo.toml, config.toml), et guidance conceptuelle.
+## 6. Commandes de référence
+- `cargo build`
+- `cargo run`
+- `cargo check`
+- `cargo clippy`
