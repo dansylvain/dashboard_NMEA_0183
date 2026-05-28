@@ -1,126 +1,122 @@
-# PROJET : Dashboard NMEA 0183 (TUI Rust)
+# PROJECT: Dashboard NMEA 0183 (Rust TUI)
 
-## 1. Objectif du projet
+## 1. Project Goals
 
-Ce projet a deux finalités :
+This project has two purposes:
 
-- **Apprentissage :** approfondir `ratatui`, `tokio`, et introduire la communication avec des équipements nautiques (port série, protocole NMEA 0183).
-- **Outil pratique :** afficher en temps réel les instruments de bord (vitesse, cap, position) depuis un flux NMEA 0183, dans un dashboard entièrement terminal.
+- **Learning:** deepen knowledge of `ratatui`, `tokio`, and introduce communication with nautical equipment (serial port, NMEA 0183 protocol).
+- **Practical tool:** display real-time onboard instruments (speed, heading, position) from an NMEA 0183 data stream, inside a fully terminal-based dashboard.
 
-### Positionnement stratégique
+### Strategic positioning
 
-Ce projet s'inscrit dans une trajectoire B2B précise : **sécuriser et moderniser le code legacy (C/C++) des systèmes embarqués maritimes** pour répondre aux exigences du *Cyber Resilience Act* européen, sans perte de performance.
+This project is part of a precise B2B trajectory: **securing and modernizing legacy code (C/C++) from maritime embedded systems** to meet the requirements of the European *Cyber Resilience Act*, without performance loss.
 
-La V1 pose les fondations Rust dans le domaine cible (parsing NMEA, async, TUI). La V2 bascule sur un parser NMEA écrit en C, intégré via FFI Rust/C — démontrant
-directement la compétence différenciante : interfacer et sécuriser du code embarqué legacy dans un wrapper Rust safe. Ce projet constitue la première brique du
-portfolio **Digital Trust Stack**, à destination des acteurs de la sailing tech (Madintec, Pixel sur Mer, écuries IMOCA/Ultim).
+V1 lays the Rust foundations in the target domain (NMEA parsing, async, TUI). V2 switches to an NMEA parser written in C, integrated via Rust/C FFI — directly demonstrating the key differentiating skill: interfacing and securing legacy embedded code inside a safe Rust wrapper. This project is the first building block of the **Digital Trust Stack** portfolio, targeting actors in the sailing tech space (Madintec, Pixel sur Mer, IMOCA/Ultim teams).
 
-## 2. Description Fonctionnelle
+## 2. Functional Description
 
-L'application lit un flux de trames NMEA 0183 ligne par ligne, parse les sentences reconnues, et met à jour un dashboard TUI en temps réel.
+The application reads an NMEA 0183 data stream line by line, parses recognized sentences, and updates a TUI dashboard in real time.
 
 ```
-Source NMEA (fichier log ou port série)
+NMEA Source (log file or serial port)
     │
-    └─> Worker async (lecture + parsing)
+    └─> Async worker (reading + parsing)
             │
-            └─> Channel MPSC (structures de données propres)
+            └─> MPSC channel (clean data structures)
                     │
-                    └─> Thread UI (ratatui) ──> Dashboard terminal
+                    └─> UI thread (ratatui) ──> Terminal dashboard
 ```
 
-**V1 :** source = fichier `.txt` / `.log` simulant une navigation (lecture ligne par ligne avec délai configurable).
-**V2 :** source = port série réel (via `serialport`).
+**V1:** source = `.txt` / `.log` file simulating a navigation session (line-by-line reading with a configurable delay).
+**V2:** source = real serial port (via `serialport`).
 
-## 3. Fonctionnalités V1
+## 3. V1 Features
 
-- **Source de données :**
-    - Lecture d'un fichier de log NMEA 0183 (chemin passé en argument CLI ou saisi dans la TUI).
-    - Délai entre chaque ligne configurable (simulation du temps réel).
+- **Data source:**
+    - Reading an NMEA 0183 log file (path passed as a CLI argument or entered in the TUI).
+    - Configurable delay between each line (real-time simulation).
 
-- **Parsing NMEA :**
-    - `$GPRMC` — Position (lat/lon), vitesse fond (SOG), cap fond (COG), date/heure UTC.
-    - `$GPGGA` — Position, altitude, qualité du fix GPS, nombre de satellites.
+- **NMEA parsing:**
+    - `$GPRMC` — Position (lat/lon), speed over ground (SOG), course over ground (COG), UTC date/time.
+    - `$GPGGA` — Position, altitude, GPS fix quality, number of satellites.
 
-- **Dashboard TUI :**
-    - **Vitesse sur le fond (SOG)** — valeur principale en grand affichage (nœuds).
-    - **Cap fond (COG)** — en degrés.
-    - **Latitude / Longitude** — format degrés-minutes décimales.
-    - **Log défilant** — trames brutes reçues, avec horodatage local.
-    - **Barre de statut** — source active, état du parsing (OK / erreur).
+- **TUI dashboard:**
+    - **Speed over ground (SOG)** — primary value in large display (knots).
+    - **Course over ground (COG)** — in degrees.
+    - **Latitude / Longitude** — decimal degrees-minutes format.
+    - **Scrolling log** — raw received frames with local timestamp.
+    - **Status bar** — active source, parsing state (OK / error).
 
-- **Configuration :**
-    - Fichier `config.toml` local (non versionné) pour les paramètres par défaut (chemin fichier, délai de simulation).
+- **Configuration:**
+    - Local `config.toml` file (not versioned) for default parameters (file path, simulation delay).
 
-- **Navigation clavier :**
-    - `q` / `Ctrl-C` : quitter.
-    - `p` : pause / reprise de la lecture.
-    - `r` : relancer la lecture depuis le début du fichier.
+- **Keyboard navigation:**
+    - `q` / `Ctrl-C`: quit.
+    - `p`: pause / resume reading.
+    - `r`: restart reading from the beginning of the file.
 
-## 4. Hors scope V1
+## 4. Out of scope for V1
 
-- Connexion port série réelle (prévu V2 — voir section 6).
-- Parsing de sentences autres que RMC et GGA.
-- Affichage cartographique ou trace GPS.
-- Export / enregistrement des données reçues.
+- Real serial port connection (planned for V2 — see section 6).
+- Parsing sentences other than RMC and GGA.
+- Cartographic display or GPS track.
+- Export / recording of received data.
 
-## 5. Architecture et Stack Technique
+## 5. Architecture and Technical Stack
 
-- **Langage :** Rust
-- **Interface Terminal (TUI) :** `ratatui` (rendu) + `crossterm` (backend terminal)
-- **Asynchronisme :** `tokio` (runtime async, features full)
-- **Parsing NMEA :** `nmea` (sentences RMC, GGA et autres)
-- **Sérialisation / config :** `serde` + `toml`
-- **Gestion d'erreurs :** `anyhow`
+- **Language:** Rust
+- **Terminal Interface (TUI):** `ratatui` (rendering) + `crossterm` (terminal backend)
+- **Async runtime:** `tokio` (full features)
+- **NMEA parsing:** `nmea` (RMC, GGA, and other sentences)
+- **Serialization / config:** `serde` + `toml`
+- **Error handling:** `anyhow`
 
-### Modèle de concurrence : MPSC
+### Concurrency model: MPSC
 
-L'UI ne doit jamais bloquer sur des I/O. Architecture à deux acteurs :
+The UI must never block on I/O. Two-actor architecture:
 
-- **Thread UI (principal) :** boucle d'événements `ratatui` + capture clavier via `crossterm`. Lit le channel à chaque tick et met à jour l'état affiché.
-- **Worker task (arrière-plan) :** tâche `tokio` qui lit le fichier ligne par ligne, parse chaque trame via `nmea`, et envoie une structure `NmeaFrame` propre dans le channel MPSC vers l'UI.
+- **UI thread (main):** `ratatui` event loop + keyboard capture via `crossterm`. Reads the channel on each tick and updates the displayed state.
+- **Worker task (background):** `tokio` task that reads the file line by line, parses each frame via `nmea`, and sends a clean `NmeaFrame` struct into the MPSC channel toward the UI.
 
-Messages du worker vers l'UI (exemples) :
+Worker-to-UI messages (examples):
 - `Event::Frame(NmeaFrame::Rmc { sog, cog, lat, lon, datetime })`
 - `Event::Frame(NmeaFrame::Gga { lat, lon, altitude, satellites })`
-- `Event::ParseError(String)` — trame mal formée, affichée dans le log.
-- `Event::EndOfFile` — fin du fichier de simulation.
+- `Event::ParseError(String)` — malformed frame, displayed in the log.
+- `Event::EndOfFile` — end of the simulation file.
 
-Message de l'UI vers le worker :
+UI-to-worker messages:
 - `Command::Pause`
 - `Command::Resume`
 - `Command::Restart`
 
-## 6. Structure de la Configuration (`config.toml`)
+## 6. Configuration structure (`config.toml`)
 
 ```toml
 log_file_path = "data/sample_navigation.log"
 simulation_delay_ms = 500
 ```
 
-Section 7 — remplace la piste V2 par :
+Section 7 — replaces the V2 track with:
 
-- **V2 — Binding FFI vers un parser C :** remplacer la crate `nmea` par un parser NMEA écrit en C (stub maison ou bibliothèque existante), intégré via FFI Rust/C avec
-gestion explicite de `unsafe`. Objectif : démontrer la capacité à envelopper du code embarqué legacy dans une couche Rust safe, scénario central de la proposition de
-valeur B2B.
-- **V3 — Port série réel :** intégrer `serialport` pour lire depuis un récepteur GPS/traceur USB. Rendre la source interchangeable via un trait commun `NmeaSource` (fichier / FFI C / port série).
+- **V2 — FFI binding to a C parser:** replace the `nmea` crate with an NMEA parser written in C (custom stub or existing library), integrated via Rust/C FFI with explicit `unsafe` handling. Goal: demonstrate the ability to wrap legacy embedded code in a safe Rust layer — the central scenario of the B2B value proposition.
+- **V3 — Real serial port:** integrate `serialport` to read from a USB GPS receiver/plotter. Make the source interchangeable via a common trait `NmeaSource` (file / C FFI / serial port).
 
-## 8. Roadmap V1
+## 8. V1 Roadmap
 
-- [ ] **Phase 1 : Squelette TUI**
-    - Initialisation Cargo, dépendances.
-    - Boucle d'événements `ratatui` avec `crossterm`.
-    - Layout du dashboard (blocs : vitesse, cap, position, log).
-    - Lecture / écriture `config.toml`.
+- [ ] **Phase 1: TUI skeleton**
+    - Cargo initialization, dependencies.
+    - `ratatui` event loop with `crossterm`.
+    - Dashboard layout (blocks: speed, heading, position, log).
+    - `config.toml` read / write.
 
-- [ ] **Phase 2 : Worker NMEA**
-    - Lecture du fichier log ligne par ligne avec délai.
-    - Parsing des sentences RMC et GGA via la crate `nmea`.
-    - Envoi des structures `NmeaFrame` via channel MPSC.
-    - Gestion des commandes Pause / Resume / Restart depuis l'UI.
+- [ ] **Phase 2: NMEA worker**
+    - Line-by-line file reading with delay.
+    - Parsing of RMC and GGA sentences via the `nmea` crate.
+    - Sending `NmeaFrame` structs via MPSC channel.
+    - Handling Pause / Resume / Restart commands from the UI.
 
-- [ ] **Phase 3 : Finalisation Dashboard**
-    - Mise à jour réactive des widgets à chaque `Event::Frame`.
-    - Log défilant des trames brutes avec horodatage.
-    - Barre de statut (source, état, dernière erreur de parsing).
-    - Gestion propre de `Event::EndOfFile` (message + arrêt propre).
+- [ ] **Phase 3: Dashboard finalization**
+    - Reactive widget updates on each `Event::Frame`.
+    - Scrolling log of raw frames with timestamp.
+    - Status bar (source, state, last parsing error).
+    - Clean handling of `Event::EndOfFile` (message + graceful shutdown).
