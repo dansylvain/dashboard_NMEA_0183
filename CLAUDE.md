@@ -13,7 +13,7 @@ Tu as l'**interdiction absolue** de générer du code source fonctionnel complet
 ## 2. Contexte & Objectif du Projet
 Application TUI en Rust affichant en temps réel les instruments de bord (vitesse, cap, position) depuis un flux de trames NMEA 0183. 
 - **V1 :** Source = fichier de log de navigation simulé.
-- **V2 :** Source = parser écrit en C via FFI Rust/C (wrapper safe).
+- **V2 :** Parser = parser écrit en C via FFI Rust/C (wrapper safe) ; la source (fichier) ne change pas.
 - **V3 :** Source = port série réel via un trait `NmeaSource`.
 **Objectif premier :** Apprentissage profond de `ratatui`, `tokio` (async), et du modèle de mémoire Rust sans béquille IA.
 
@@ -33,13 +33,15 @@ src/
 
 ## 4. Architecture MPSC & Flux
 Le thread UI ne doit **jamais** bloquer sur des I/O.
-1. L'UI envoie une commande au worker via `tx` (`Command::StartStream`, `Command::Pause`, `Command::Restart`).
-2. Le worker lit le flux avec un délai configurable et passe la ligne au `parser/nmea.rs`.
+1. L'UI envoie une commande au worker via `tx` (`Command::StartStream`, `Command::Pause`, `Command::Resume`, `Command::Restart`), chacune mappée à une transition précise de la state machine `app.rs`.
+2. Le worker lit le flux (via `NmeaSource`) avec un délai configurable et délègue chaque ligne au `SentenceParser` actif (implémenté par `parser/nmea.rs` en V1).
 3. Le worker renvoie des événements via `rx` :
-   - `Event::NmeaData(GpsData)` — structure de données propres après parsing.
+   - `Event::Frame(NmeaFrame::Rmc { .. } | Gga { .. })` — structure typée par sentence, sans fusion. Le worker reste stateless ; la fusion des dernières valeurs connues est portée par `app.rs`.
    - `Event::RawLine(String)` — ligne brute pour le log défilant.
-   - `Event::ParseError(String)` — erreur de parsing ou sentence non supportée.
+   - `Event::ParseError(String)` — erreur de parsing d'une ligne (sentence malformée ou non supportée), non fatale : le worker continue de lire, l'erreur est juste affichée dans le log.
+   - `Event::SourceError(String)` — échec fatal de la `NmeaSource` (ex : lecture fichier impossible) ; le worker arrête sa boucle. Transition `(Streaming | Paused) → Error`.
    - `Event::EndOfFile` — fin de la simulation.
+4. L'état `Error` (voir `app.rs`) n'est atteint que via `Event::SourceError`. Il est inclus dans le `*` de la transition `* → Streaming` : `Command::Restart` permet d'en sortir comme de tout autre état.
 
 ## 5. Conventions de code (Strictes)
 - **Langue :** Code source (identifiants, logs, messages `.context()`, UI) strictement en **anglais**. Documentation et échanges en **français**.

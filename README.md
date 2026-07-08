@@ -48,33 +48,28 @@ NMEA source (log file / serial port)
 
 **Concurrency model — MPSC:**
 
-- The UI sends commands to the worker: `Command::StartStream`, `Command::Pause`, `Command::Restart`
-- The worker sends events back to the UI: `Event::NmeaData(GpsData)`, `Event::RawLine(String)`, `Event::ParseError(String)`, `Event::EndOfFile`
+- The UI sends commands to the worker: `Command::StartStream`, `Command::Pause`, `Command::Resume`, `Command::Restart`
+- The worker sends events back to the UI: `Event::Frame(NmeaFrame)`, `Event::RawLine(String)`, `Event::ParseError(String)` (non-fatal), `Event::SourceError(String)` (fatal, → `Error` state), `Event::EndOfFile`
 
 ---
 
 ## Features (V1)
 
-- [x] Project structure, architecture, dependency graph
-- [ ] NMEA sentence parsing:
-  - `$GPRMC` — position, speed over ground (SOG), course over ground (COG), UTC timestamp
-  - `$GPGGA` — position, GPS fix quality, satellite count
-- [ ] File-based stream simulation with configurable line delay
-- [ ] Reactive TUI dashboard: SOG gauge, COG, lat/lon, scrolling raw sentence log, status bar
-- [ ] Keyboard control (Vim-style): pause / resume / restart stream
+V1 is currently in active development.
 
 ---
 
 ## Roadmap
 
-**V2 — Live serial port**
-Replace the file reader with a real serial connection via the `serialport` crate. The worker's data source becomes swappable behind a common trait, so the rest of the stack is unchanged.
+**V2 — FFI binding to a CVE-documented C parser**
+Wrap the NMEA0183 driver from `gpsd` (pre-3.9) via Rust/C FFI, replacing the `nmea` crate as the active `SentenceParser`. The driver carries a documented buffer-overflow/denial-of-service vulnerability on malformed `$GPGGA` sentences ([CVE-2013-2038](https://www.cvedetails.com/cve/CVE-2013-2038/)) — the safe Rust boundary is expected to contain it. Central demonstration of the project's B2B positioning: securing legacy embedded C code.
 
-**V3 — Additional sentences**
-Extend the parser to cover `$GPVTG` (course/speed), `$GPGSV` (satellites in view), `$IIDPT` (depth sounder).
+**V3 — Live serial port**
+Add a `serialport`-backed `NmeaSource`, alongside the existing file source, to read from a real USB GPS receiver/plotter.
 
-**V4 — GPS track rendering**
-Render a navigational track using the `ratatui` canvas widget.
+**Beyond V3** *(ideas, not yet scoped in PROJECT.md)*
+- Additional sentences: `$GPVTG` (course/speed), `$GPGSV` (satellites in view), `$IIDPT` (depth sounder).
+- GPS track rendering via the `ratatui` canvas widget.
 
 ---
 

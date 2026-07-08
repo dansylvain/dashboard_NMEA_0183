@@ -28,7 +28,8 @@ NMEA Source (log file or serial port)
 ```
 
 **V1:** source = `.txt` / `.log` file simulating a navigation session (line-by-line reading with a configurable delay).
-**V2:** source = real serial port (via `serialport`).
+**V2:** same file source; the `nmea` crate is replaced by a C parser via FFI (see section 7).
+**V3:** source = real serial port (via `serialport`).
 
 ## 3. V1 Features
 
@@ -57,7 +58,7 @@ NMEA Source (log file or serial port)
 
 ## 4. Out of scope for V1
 
-- Real serial port connection (planned for V2 — see section 6).
+- Real serial port connection (planned for V3 — see section 7).
 - Parsing sentences other than RMC and GGA.
 - Cartographic display or GPS track.
 - Export / recording of received data.
@@ -81,13 +82,33 @@ The UI must never block on I/O. Two-actor architecture:
 Worker-to-UI messages (examples):
 - `Event::Frame(NmeaFrame::Rmc { sog, cog, lat, lon, datetime })`
 - `Event::Frame(NmeaFrame::Gga { lat, lon, altitude, satellites })`
-- `Event::ParseError(String)` — malformed frame, displayed in the log.
+- `Event::RawLine(String)` — raw sentence text, for the scrolling raw-frame log.
+- `Event::ParseError(String)` — malformed frame, non-fatal: displayed in the log, the worker keeps reading.
+- `Event::SourceError(String)` — fatal `NmeaSource` failure (e.g. unreadable file); the worker stops its loop.
 - `Event::EndOfFile` — end of the simulation file.
 
 UI-to-worker messages:
+- `Command::StartStream`
 - `Command::Pause`
 - `Command::Resume`
 - `Command::Restart`
+
+Each command maps to exactly one transition of the `app.rs` state machine (`Idle → Streaming`, `Streaming → Paused`, `Paused → Streaming`, `* → Streaming` from the beginning). One additional, worker-driven transition exists outside the command set: `(Streaming | Paused) → Error` on `Event::SourceError`. `Error` is included in the `*` of `* → Streaming`, so `Command::Restart` recovers from it exactly like from any other state. The worker stays stateless — it never merges fields across sentences. Merging the latest known SOG/COG/lat/lon/altitude/satellites into a single displayable snapshot is `app.rs`'s responsibility, consistent with its role as global state holder.
+
+**Runtime flavor:** `tokio::main(flavor = "current_thread")`. V1 has exactly one worker task — a task always runs on a single thread at a time regardless of pool size, so the default `multi_thread` runtime (one OS thread per CPU core) would leave most of its pool idle for no benefit here. `current_thread` keeps the thread count honest: one plain OS thread for the UI loop (never `.await`s — only non-blocking/timeout polls on the keyboard and the channel), one tokio-managed thread for the worker task.
+
+This is a separate concern from `tokio::task::spawn_blocking`, which V2 will likely need if the wrapped `gpsd` C function is synchronous/blocking — `spawn_blocking` runs on its own dedicated blocking-thread pool regardless of the main runtime's flavor.
+
+Revisit `current_thread` if the scope grows to genuinely concurrent worker tasks (e.g. aggregating several `NmeaSource` instances at once) — that is the point where `multi_thread` starts paying for itself.
+
+### Source and parser abstractions
+
+Two independent traits, not one — they vary independently across versions:
+
+- **`NmeaSource`** — where raw lines come from. `fn next_line(&mut self) -> Result<Option<String>, SourceError>;`. Implementations: file reader (V1), serial port reader (V3).
+- **`SentenceParser`** — how a raw line becomes a typed frame. `fn parse(&self, line: &str) -> Result<NmeaFrame, ParseError>;`. Implementations: `nmea` crate wrapper (V1), `gpsd` FFI wrapper (V2, the `unsafe` boundary lives here).
+
+The worker owns one of each and composes them; e.g. V2 keeps the V1 file `NmeaSource` unchanged and only swaps the `SentenceParser`.
 
 ## 6. Configuration structure (`config.toml`)
 
@@ -96,10 +117,10 @@ log_file_path = "data/sample_navigation.log"
 simulation_delay_ms = 500
 ```
 
-Section 7 — replaces the V2 track with:
+## 7. Roadmap — V2 / V3
 
-- **V2 — FFI binding to a C parser:** replace the `nmea` crate with an NMEA parser written in C (custom stub or existing library), integrated via Rust/C FFI with explicit `unsafe` handling. Goal: demonstrate the ability to wrap legacy embedded code in a safe Rust layer — the central scenario of the B2B value proposition.
-- **V3 — Real serial port:** integrate `serialport` to read from a USB GPS receiver/plotter. Make the source interchangeable via a common trait `NmeaSource` (file / C FFI / serial port).
+- **V2 — FFI binding to a real, CVE-documented C parser:** replace the `nmea` crate with the NMEA0183 driver from `gpsd` (pre-3.9), which contains a documented buffer-overflow/denial-of-service vulnerability triggered by a malformed `$GPGGA` sentence missing fields and a terminator ([CVE-2013-2038](https://www.cvedetails.com/cve/CVE-2013-2038/)). Integrate it via Rust/C FFI with explicit `unsafe` handling. Goal: demonstrate the ability to wrap real, CVE-documented legacy embedded code in a safe Rust layer — the central scenario of the B2B value proposition. The vulnerable pre-fix version is the wrapped target; the safe Rust boundary is expected to contain the class of bug the CVE describes.
+- **V3 — Real serial port:** integrate `serialport` to read from a USB GPS receiver/plotter as a new `NmeaSource` implementation (see section 5), alongside the existing file source. The `SentenceParser` in use (`nmea` crate or `gpsd` FFI) is independent of this choice.
 
 ## 8. V1 Roadmap
 
