@@ -144,7 +144,7 @@ src/
 
 ## Development Environment
 
-100% terminal workflow: Neovim / tmux / WSL2.
+100% terminal workflow: Neovim / WSL2.
 
 ---
 
