@@ -4,6 +4,7 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use std::io;
+use std::io::Write;
 
 struct TerminalGuard {}
 
@@ -20,14 +21,20 @@ impl Drop for TerminalGuard {
         if let Err(e) = execute!(io::stdout(), LeaveAlternateScreen)
             .context("Failed to exit alternate screen: ")
         {
-            eprintln!("{}", e);
+            eprintln!("{e}");
         }
         if let Err(e) = disable_raw_mode().context("failed to disable raw mode: ") {
-            eprintln!("{}", e);
+            eprintln!("{e}");
         }
     }
 }
 
-fn main() {
+fn main() -> Result<()> {
+    {
+        let _guard = TerminalGuard::new()?;
+        writeln!(io::stdout(), "Hello, mein Freund!").context("Failed to write to stdout")?;
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
     println!("Hello, Dashboard NMEA!");
+    Ok(())
 }
