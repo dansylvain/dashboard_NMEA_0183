@@ -1,0 +1,2 @@
+log_file_path = "data/sample_navigation.log"
+simulation_delay_ms = 500
